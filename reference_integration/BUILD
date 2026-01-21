@@ -30,3 +30,39 @@ rpm_package(
     summary = "LOLA Demo",
     version = "1.0.0",
 )
+
+rpm_package(
+    name = "persistency-demo",
+    binaries = [
+        "//demos/persistency:kvs-cpp-demo",
+        "//demos/persistency:kvs-rust-demo",
+    ],
+    data = ["//demos/persistency:simple_demo.sh"],
+    data_dir = "/usr/share/persistency-demo",
+    description = "Comprehensive demonstration programs for Eclipse Score persistency Key-Value Storage (KVS) library showcasing capabilities through C++ and Rust implementations",
+    libraries = [
+        "@score_persistency//:kvs_cpp",
+    ],
+    summary = "Persistency KVS Demo",
+    version = "0.1.0",
+)
+
+rpm_package(
+    name = "holden-orchestrator-demo",
+    binaries = [
+        "//demos/holden:holden-orchestrator",
+    ],
+    description = "pidfd-based process orchestrator for managing and monitoring processes with automatic restart capability",
+    summary = "Holden Process Orchestrator",
+    version = "0.1.0",
+)
+
+rpm_package(
+    name = "holden-agent-demo",
+    binaries = [
+        "//demos/holden:holden-agent",
+    ],
+    description = "Stateless process spawning agent for container-based process management",
+    summary = "Holden Agent Daemon",
+    version = "0.1.0",
+)

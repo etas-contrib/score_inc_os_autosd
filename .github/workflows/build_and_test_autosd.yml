@@ -21,6 +21,8 @@ jobs:
   lola-demo:
     name: lola-demo
     runs-on: ubuntu-latest
+    env:
+      USE_BAZEL_VERSION: 8.3.0
 
     steps:
       - name: Checkout repository
@@ -37,12 +39,7 @@ jobs:
           sudo apt-get install -y podman curl qemu-system which createrepo-c
 
       - name: Build and copy RPMs
-        run: |
-          bazel build --config=bl-x86_64-linux-autosd //:lola-demo
-          mkdir -p ../os_images/rpms
-          cp bazel-out/k8-fastbuild/bin/lola-demo-1.0.0-1.x86_64.rpm ../os_images/rpms/
-          cp bazel-out/k8-fastbuild/bin/lola-demo-1.0.0-1.src.rpm ../os_images/rpms/
-          createrepo_c ../os_images/rpms/
+        run: ./build-rpms.sh
         working-directory: reference_integration
 
       - name: Build AutoSD Image

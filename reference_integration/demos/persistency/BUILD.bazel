@@ -10,33 +10,25 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 # *******************************************************************************
+load("@rules_rust//rust:defs.bzl", "rust_binary")
 
-#!/usr/bin/sh
+exports_files(["simple_demo.sh"])
 
-SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-cd $SCRIPT_DIR
+cc_binary(
+    name = "kvs-cpp-demo",
+    srcs = ["kvs_demo.cpp"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@score_persistency//:kvs_cpp",
+    ],
+)
 
-image=true
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    --noimage)
-      image=false
-      shift # past argument
-      ;;
-  esac
-done
-
-arch=$(arch)
-
-if [ $image = true ]; then
-  automotive-image-builder --verbose \
-    build \
-    --define-file ../vars-devel.yml \
-    --distro autosd9 \
-    --target qemu \
-    --mode package \
-    --build-dir=_build \
-    --export image \
-    inc_orchestrator.aib.yml \
-    inc_orchestrator.$arch.img
-fi
+rust_binary(
+    name = "kvs-rust-demo",
+    srcs = ["rust_demo.rs"],
+    edition = "2021",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@score_persistency//src/rust/rust_kvs",
+    ],
+)

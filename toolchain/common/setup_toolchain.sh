@@ -13,18 +13,97 @@
 #!/bin/bash
 set -euo pipefail
 
-DISTRO="$1"
-REPO_URL="$2"
-ARCH="$3"
-shift 3
-PACKAGES=("$@")
+# Parse arguments
+TARBALL_MODE=false
+TARBALL_OUTPUT=""
+
+if [ "${1:-}" = "--tarball" ]; then
+    TARBALL_MODE=true
+    if [ $# -lt 3 ]; then
+        echo "ERROR: --tarball requires output path and architecture" >&2
+        echo "Usage: $0 --tarball OUTPUT_PATH ARCH" >&2
+        echo "       $0 ARCH" >&2
+        exit 1
+    fi
+    TARBALL_OUTPUT="$2"
+    shift 2
+elif [ $# -lt 1 ]; then
+    echo "ERROR: Missing architecture argument" >&2
+    echo "Usage: $0 --tarball OUTPUT_PATH ARCH" >&2
+    echo "       $0 ARCH" >&2
+    exit 1
+fi
+
+ARCH="$1"
+
+# Setup working directory
+WORK_DIR="$(pwd)"
+if [ "$TARBALL_MODE" = "true" ]; then
+    TEMP_DIR=$(mktemp -d -t autosd-toolchain-XXXXXX)
+    echo "Working in temporary directory: $TEMP_DIR" >&2
+    cd "$TEMP_DIR"
+    trap 'cd "$WORK_DIR"; rm -rf "$TEMP_DIR"' EXIT
+fi
+
+# Validate system requirements
+validate_system_requirements() {
+    local missing_tools=()
+
+    for tool in rpm2cpio cpio bash grep sed find curl; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            missing_tools+=("$tool")
+        fi
+    done
+
+    if [ ${#missing_tools[@]} -gt 0 ]; then
+        echo "ERROR: Required tools are not available: ${missing_tools[*]}" >&2
+        exit 1
+    fi
+
+    # Validate rpm2cpio works (accepts exit codes 0, 1, or 2)
+    if ! rpm2cpio --help >/dev/null 2>&1; then
+        set +e
+        rpm2cpio >/dev/null 2>&1
+        local exit_code=$?
+        set -e
+        if [ $exit_code -ne 0 ] && [ $exit_code -ne 1 ] && [ $exit_code -ne 2 ]; then
+            echo "ERROR: rpm2cpio is not working properly" >&2
+            exit 1
+        fi
+    fi
+}
+
+# Validate system before proceeding
+validate_system_requirements
+
+# AutoSD 10 repository URL
+REPO_BASE_URL="https://autosd.sig.centos.org/AutoSD-10/nightly/repos/AutoSD/compose/AutoSD"
+REPO_URL="${REPO_BASE_URL}/${ARCH}/os"
+
+# AutoSD 10 packages to download (versions discovered dynamically)
+PACKAGES=(
+    "gcc"
+    "gcc-c++"
+    "cpp"
+    "binutils"
+    "glibc-devel"
+    "libstdc++-devel"
+    "libstdc++"
+    "kernel-headers"
+    "glibc"
+    "libgcc"
+    "libmpc"
+    "gmp"
+    "mpfr"
+)
 
 USER_AGENT="Multi-GCC-Toolchain/1.0"
 MAX_RETRIES=3
 MAX_VERSION_INCREMENTS=1  # Try up to 1 patch version increments
 
-echo "Setting up toolchain from: $REPO_URL" >&2
+echo "Setting up AutoSD 10 GCC toolchain" >&2
 echo "Architecture: $ARCH" >&2
+echo "Repository: $REPO_URL" >&2
 echo "Packages: ${PACKAGES[*]}" >&2
 
 # Increment the patch version in an RPM filename
@@ -52,58 +131,25 @@ download_package() {
 
     local rpm_url
     local rpm_file
+    local encoded_pkg_name="${pkg_name//+/%2B}"
 
-    if [[ "$DISTRO" == "fedora" ]]; then
-        local encoded_pkg_name="${pkg_name//+/%2B}"
+    # Find package URL in AutoSD repository listing
+    rpm_url=$(grep -o "href=\"[^\"]*/${encoded_pkg_name}-[0-9][^\"]*\\.${ARCH}\\.rpm\"" "$html_page" | \
+        sed 's/href="//;s/"$//' | sort -V | tail -1)
 
-        # Try URL-encoded version first (for gcc-c++)
-        rpm_file=$(grep -o "href=\"${encoded_pkg_name}-[0-9][^\"]*\\.${ARCH}\\.rpm\"" "$html_page" | \
+    if [ -z "$rpm_url" ]; then
+        rpm_url=$(grep -o "href=\"[^\"]*/${pkg_name}-[0-9][^\"]*\\.${ARCH}\\.rpm\"" "$html_page" | \
             sed 's/href="//;s/"$//' | sort -V | tail -1)
+    fi
 
-        # Try non-encoded version (for libstdc++)
-        if [ -z "$rpm_file" ]; then
-            rpm_file=$(grep -o "href=\"${pkg_name}-[0-9][^\"]*\\.${ARCH}\\.rpm\"" "$html_page" | \
-                sed 's/href="//;s/"$//' | sort -V | tail -1)
-        fi
-
-        # Try case-insensitive as last resort
-        if [ -z "$rpm_file" ]; then
-            rpm_file=$(grep -i "href=\".*${pkg_name}-[0-9][^\"]*\\.${ARCH}\\.rpm\"" "$html_page" | \
-                grep -o "href=\"[^\"]*\"" | sed 's/href="//;s/"$//' | \
-                grep "${pkg_name}-[0-9].*\\.${ARCH}\\.rpm" | sort -V | tail -1)
-        fi
-
-        if [ -z "$rpm_file" ]; then
-            echo "[$pkg_name] ERROR: Package not found" >&2
-            grep -i "${pkg_name}" "$html_page" | head -5 | sed "s/^/[$pkg_name]   /" >&2
-            return 1
-        fi
-
-        rpm_file="${rpm_file//%2B/+}"
-        rpm_url="${REPO_URL}/Packages/${rpm_file}"
-    elif [[ "$DISTRO" == autosd* ]]; then
-        local encoded_pkg_name="${pkg_name//+/%2B}"
-
-        rpm_url=$(grep -o "href=\"[^\"]*/${encoded_pkg_name}-[0-9][^\"]*\\.${ARCH}\\.rpm\"" "$html_page" | \
-            sed 's/href="//;s/"$//' | sort -V | tail -1)
-
-        if [ -z "$rpm_url" ]; then
-            rpm_url=$(grep -o "href=\"[^\"]*/${pkg_name}-[0-9][^\"]*\\.${ARCH}\\.rpm\"" "$html_page" | \
-                sed 's/href="//;s/"$//' | sort -V | tail -1)
-        fi
-
-        if [ -z "$rpm_url" ]; then
-            echo "[$pkg_name] ERROR: Package not found" >&2
-            grep -i "${pkg_name}" "$html_page" | head -5 | sed "s/^/[$pkg_name]   /" >&2
-            return 1
-        fi
-
-        rpm_file=$(basename "$rpm_url")
-        rpm_file="${rpm_file//%2B/+}"
-    else
-        echo "[$pkg_name] ERROR: Unknown distro: $DISTRO" >&2
+    if [ -z "$rpm_url" ]; then
+        echo "[$pkg_name] ERROR: Package not found" >&2
+        grep -i "${pkg_name}" "$html_page" | head -5 | sed "s/^/[$pkg_name]   /" >&2
         return 1
     fi
+
+    rpm_file=$(basename "$rpm_url")
+    rpm_file="${rpm_file//%2B/+}"
 
     echo "[$pkg_name] Downloading: $rpm_file" >&2
 
@@ -171,13 +217,7 @@ download_package() {
 }
 
 # Fetch package listing once
-packages_dir="${REPO_URL}/Packages"
-search_url="${packages_dir}/"
-
-# Check if subdirectory structure exists (Fedora uses first letter subdirs)
-if curl -L -s -f -I -A "$USER_AGENT" "${packages_dir}/g/" >/dev/null 2>&1; then
-    echo "Note: Repository uses subdirectory structure" >&2
-fi
+search_url="${REPO_URL}/Packages/"
 
 echo "Fetching package list from: ${search_url}" >&2
 html_page=$(mktemp)
@@ -284,13 +324,34 @@ WRAPPER_EOF
     mv "${tool_path}_wrapper" "$tool_path"
 done
 
-if [[ "$DISTRO" == autosd* ]]; then
-    echo "Applying AutoSD-specific fixes..." >&2
+echo "Applying linker fixes..." >&2
+if [ -f usr/bin/ld.bfd ] && [ ! -e usr/bin/ld ]; then
+    ln -s ld.bfd usr/bin/ld
+    echo "Created ld -> ld.bfd symlink" >&2
+fi
 
-    if [ -f usr/bin/ld.bfd ] && [ ! -e usr/bin/ld ]; then
-        ln -s ld.bfd usr/bin/ld
-        echo "Created ld -> ld.bfd symlink" >&2
-    fi
+# Create tarball if requested
+if [ "$TARBALL_MODE" = "true" ]; then
+    # Resolve absolute path for output (since we're in temp dir)
+    OUTPUT_PATH="$WORK_DIR/$TARBALL_OUTPUT"
+    echo "Creating tarball: $OUTPUT_PATH" >&2
+
+    # Create metadata file
+    cat > SYSROOT_INFO <<EOF
+# AutoSD 10 GCC Toolchain Sysroot
+ARCH=$ARCH
+CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+REPO_URL=$REPO_URL
+PACKAGES=${PACKAGES[*]}
+EOF
+
+    # Create tarball with sysroot contents
+    tar -czf "$OUTPUT_PATH" \
+        --transform 's,^\.,sysroot,' \
+        ./usr ./lib64 ./SYSROOT_INFO
+
+    echo "Tarball created successfully: $OUTPUT_PATH" >&2
+    echo "Contents: usr/, lib64/, SYSROOT_INFO" >&2
 fi
 
 echo "Toolchain setup complete!" >&2

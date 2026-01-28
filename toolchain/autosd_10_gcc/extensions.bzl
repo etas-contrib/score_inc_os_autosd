@@ -14,37 +14,13 @@ load(
     "//common:toolchain_utils.bzl",
     "detect_gcc_version",
     "get_target_architecture",
-    "validate_system_requirements",
 )
-
-_AUTOSD_RELEASE = "10"
-_REPO_BASE_URL = "https://autosd.sig.centos.org/AutoSD-10/nightly/repos/AutoSD/compose/AutoSD"
-
-# Packages to download (versions discovered dynamically)
-_PACKAGES = [
-    "gcc",
-    "gcc-c++",
-    "cpp",
-    "binutils",
-    "glibc-devel",  # Includes glibc-headers in AutoSD 10
-    "libstdc++-devel",
-    "libstdc++",
-    "kernel-headers",
-    "glibc",
-    "libgcc",
-    "libmpc",
-    "gmp",
-    "mpfr",
-]
 
 def _autosd_10_gcc_toolchain_impl(repository_ctx):
     """Downloads AutoSD 10 RPM packages and creates an isolated GCC toolchain."""
-    validate_system_requirements(repository_ctx)
-
     rpm_arch = get_target_architecture(repository_ctx)
-    repo_url = "{}/{}".format(_REPO_BASE_URL, rpm_arch)
 
-    print("Setting up AutoSD {} GCC toolchain for {}".format(_AUTOSD_RELEASE, rpm_arch))
+    print("Setting up AutoSD 10 GCC toolchain for {}".format(rpm_arch))
 
     # Copy setup script to repository
     repository_ctx.template(
@@ -55,11 +31,7 @@ def _autosd_10_gcc_toolchain_impl(repository_ctx):
     )
 
     # Run setup script with unbuffered output
-    setup_args = ["bash", "-c", "exec ./setup_toolchain.sh 'autosd10' '{}' '{}' {}".format(
-        "{}/os".format(repo_url),
-        rpm_arch,
-        " ".join(["'{}'".format(p) for p in _PACKAGES]),
-    )]
+    setup_args = ["bash", "-c", "exec ./setup_toolchain.sh '{}'".format(rpm_arch)]
 
     result = repository_ctx.execute(setup_args, quiet = False)
     if result.return_code != 0:

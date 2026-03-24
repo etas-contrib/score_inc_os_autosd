@@ -10,7 +10,7 @@ Bazel rules for building RPM packages.
 # Use local path during development, or git_override for published versions
 local_path_override(
     module_name = "rules_rpm",
-    path = "/path/to/inc_os_autosd/rpm"
+    path = "/path/to/inc_os_autosd/toolchain/rpm"
 )
 
 bazel_dep(name = "rules_rpm", version = "0.1.0")
@@ -77,5 +77,6 @@ rpm -qpil bazel-bin/hello_world_rpm-1.0.0-1.x86_64.rpm
 | `header_dir` | `string` | `"/usr/include"` | Header install directory |
 | `config_dir` | `string` | `"/etc"` | Config install directory |
 | `data_dir` | `string` | `"/usr/share"` | Data install directory |
+| `post_install` | `string_list` | `[]` | List of commands to run after installation |
 
 See `examples/` for more examples.
